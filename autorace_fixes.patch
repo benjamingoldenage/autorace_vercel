@@ -1,0 +1,468 @@
+diff --git a/js/game.js b/js/game.js
+index 32f3513..ff755d6 100644
+--- a/js/game.js
++++ b/js/game.js
+@@ -68,22 +68,60 @@
+     }
+ 
+     destroy() {
+-      if (this.animId) {
+-        cancelAnimationFrame(this.animId);
+-        this.animId = null;
+-      }
+-      if (this.track3D) {
+-        this.track3D.destroy();
+-        this.track3D = null;
+-      }
+-      if (window.AutoRaceAudio) {
+-        window.AutoRaceAudio.stopEngine();
+-        window.AutoRaceAudio.updateTireScreech(0);
+-      }
+-      this.removeKeyListeners();
+-      if (this.renderer && this.renderer.domElement && this.renderer.domElement.parentNode) {
+-        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement.parentNode);
+-      }
++      // NOTE: every step below is wrapped so that a failure in one cleanup
++      // step can never again prevent the screen from navigating away (this
++      // is what caused the "Exit" / black-screen bug).
++      try {
++        if (this.animId) {
++          cancelAnimationFrame(this.animId);
++          this.animId = null;
++        }
++      } catch (err) { console.warn('AutoRace: animId cleanup failed', err); }
++
++      try {
++        if (this.track3D) {
++          this.track3D.destroy();
++          this.track3D = null;
++        }
++      } catch (err) { console.warn('AutoRace: track3D cleanup failed', err); }
++
++      try {
++        if (window.AutoRaceAudio) {
++          window.AutoRaceAudio.stopEngine();
++          window.AutoRaceAudio.updateTireScreech(0);
++        }
++      } catch (err) { console.warn('AutoRace: audio cleanup failed', err); }
++
++      try {
++        this.removeKeyListeners();
++      } catch (err) { console.warn('AutoRace: key listener cleanup failed', err); }
++
++      try {
++        if (this._onResizeBound) {
++          window.removeEventListener('resize', this._onResizeBound);
++          this._onResizeBound = null;
++        }
++      } catch (err) { console.warn('AutoRace: resize listener cleanup failed', err); }
++
++      try {
++        if (this.renderer) {
++          // BUGFIX: this used to call
++          // this.renderer.domElement.parentNode.removeChild(this.renderer.domElement.parentNode)
++          // which asks a node to remove ITSELF from itself and always threw,
++          // silently aborting whatever navigation triggered destroy().
++          if (this.renderer.domElement && this.renderer.domElement.parentNode) {
++            this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
++          }
++          this.renderer.dispose();
++          this.renderer = null;
++        }
++      } catch (err) { console.warn('AutoRace: renderer cleanup failed', err); }
++
++      this.scene = null;
++      this.camera = null;
++      this.playerVehicle = null;
++      this.bot1 = null;
++      this.bot2 = null;
+     }
+ 
+     setupDOM() {
+@@ -264,8 +302,9 @@
+       this.bot2 = new window.AutoRaceAIRacer('bot_2', 'PhantomAI', 'drift_king', '#7209b7', this.track3D, 2);
+       this.scene.add(this.bot2.vehicle.mesh);
+ 
+-      // Resize listener
+-      window.addEventListener('resize', this.onResize.bind(this));
++      // Resize listener (store the bound reference so destroy() can remove it)
++      this._onResizeBound = this.onResize.bind(this);
++      window.addEventListener('resize', this._onResizeBound);
+     }
+ 
+     onResize() {
+diff --git a/js/garage.js b/js/garage.js
+index 828e70d..5598612 100644
+--- a/js/garage.js
++++ b/js/garage.js
+@@ -29,13 +29,48 @@
+     }
+ 
+     destroy() {
+-      if (this.animId) {
+-        cancelAnimationFrame(this.animId);
+-        this.animId = null;
+-      }
+-      if (this.renderer && this.renderer.domElement && this.renderer.domElement.parentNode) {
+-        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement.parentNode);
+-      }
++      // Wrapped in try/catch so a cleanup failure can never again block
++      // navigation back to the menu (this is what caused the black screen).
++      try {
++        if (this.animId) {
++          cancelAnimationFrame(this.animId);
++          this.animId = null;
++        }
++      } catch (err) { console.warn('AutoRace: garage animId cleanup failed', err); }
++
++      try {
++        if (this._onResizeBound) {
++          window.removeEventListener('resize', this._onResizeBound);
++          this._onResizeBound = null;
++        }
++        if (this._onMouseMoveBound) {
++          window.removeEventListener('mousemove', this._onMouseMoveBound);
++          this._onMouseMoveBound = null;
++        }
++        if (this._onMouseUpBound) {
++          window.removeEventListener('mouseup', this._onMouseUpBound);
++          this._onMouseUpBound = null;
++        }
++      } catch (err) { console.warn('AutoRace: garage listener cleanup failed', err); }
++
++      try {
++        if (this.renderer) {
++          // BUGFIX: this used to call
++          // this.renderer.domElement.parentNode.removeChild(this.renderer.domElement.parentNode)
++          // which asks a node to remove ITSELF from itself and always threw,
++          // aborting whatever screen change triggered destroy().
++          if (this.renderer.domElement && this.renderer.domElement.parentNode) {
++            this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
++          }
++          this.renderer.dispose();
++          this.renderer = null;
++        }
++      } catch (err) { console.warn('AutoRace: garage renderer cleanup failed', err); }
++
++      this.scene = null;
++      this.camera = null;
++      this.turntable = null;
++      this.currentVehicle = null;
+     }
+ 
+     setup3DScene() {
+@@ -103,17 +138,19 @@
+         this.autoRotate = false;
+       });
+ 
+-      window.addEventListener('mousemove', (e) => {
++      this._onMouseMoveBound = (e) => {
+         if (!this.isDragging || !this.turntable) return;
+         const deltaX = e.clientX - this.prevMouseX;
+         this.turntable.rotation.y += deltaX * 0.01;
+         this.prevMouseX = e.clientX;
+-      });
++      };
++      window.addEventListener('mousemove', this._onMouseMoveBound);
+ 
+-      window.addEventListener('mouseup', () => {
++      this._onMouseUpBound = () => {
+         this.isDragging = false;
+         setTimeout(() => { this.autoRotate = true; }, 3000);
+-      });
++      };
++      window.addEventListener('mouseup', this._onMouseUpBound);
+ 
+       // Touch controls
+       this.canvasContainer.addEventListener('touchstart', (e) => {
+@@ -137,7 +174,7 @@
+       });
+ 
+       // Window resize
+-      window.addEventListener('resize', () => {
++      this._onResizeBound = () => {
+         if (!this.canvasContainer || !this.renderer || !this.camera) return;
+         const w = this.canvasContainer.clientWidth;
+         const h = this.canvasContainer.clientHeight;
+@@ -146,7 +183,8 @@
+           this.camera.updateProjectionMatrix();
+           this.renderer.setSize(w, h);
+         }
+-      });
++      };
++      window.addEventListener('resize', this._onResizeBound);
+     }
+ 
+     loadActiveCar() {
+diff --git a/js/main.js b/js/main.js
+index ab16215..4815046 100644
+--- a/js/main.js
++++ b/js/main.js
+@@ -207,14 +207,26 @@
+       const screens = document.querySelectorAll('.screen-view');
+       screens.forEach(s => s.classList.remove('active'));
+ 
+-      // If leaving game, tear down race engine
++      // If leaving game, tear down race engine.
++      // Wrapped defensively: navigation must always succeed even if
++      // cleanup itself throws (this is what used to cause the black
++      // screen / "Exit" button not working).
+       if (screenName !== 'game' && this.gameEngine) {
+-        this.stopRace();
++        try {
++          this.stopRace();
++        } catch (err) {
++          console.warn('AutoRace: stopRace failed, forcing navigation anyway', err);
++          this.gameEngine = null;
++        }
+       }
+ 
+       // If leaving garage, tear down garage 3D scene
+       if (screenName !== 'garage' && window.AutoRaceGarage) {
+-        window.AutoRaceGarage.destroy();
++        try {
++          window.AutoRaceGarage.destroy();
++        } catch (err) {
++          console.warn('AutoRace: garage destroy failed, forcing navigation anyway', err);
++        }
+       }
+ 
+       // Show target screen
+@@ -243,7 +255,11 @@
+ 
+     stopRace() {
+       if (this.gameEngine) {
+-        this.gameEngine.destroy();
++        try {
++          this.gameEngine.destroy();
++        } catch (err) {
++          console.warn('AutoRace: gameEngine.destroy() failed', err);
++        }
+         this.gameEngine = null;
+       }
+       const container = document.getElementById('game-content');
+diff --git a/js/track.js b/js/track.js
+index 434c3a9..13de276 100644
+--- a/js/track.js
++++ b/js/track.js
+@@ -130,6 +130,7 @@
+       this.scene.add(this.group);
+ 
+       this.roadWidth = 14;
++      this.curbWidth = 1.0;
+       this.curve = null;
+       this.waypoints = [];
+       this.checkpoints = [];
+@@ -139,9 +140,23 @@
+     }
+ 
+     destroy() {
++      if (this.group) {
++        this.group.traverse((obj) => {
++          if (obj.isMesh) {
++            if (obj.geometry) obj.geometry.dispose();
++            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
++            mats.forEach((m) => {
++              if (!m) return;
++              if (m.map) m.map.dispose();
++              m.dispose();
++            });
++          }
++        });
++      }
+       if (this.group && this.scene) {
+         this.scene.remove(this.group);
+       }
++      this.group = null;
+     }
+ 
+     buildTrack() {
+@@ -170,7 +185,7 @@
+       const uvs = [];
+       const indices = [];
+ 
+-      const curbWidth = 1.0;
++      const curbWidth = this.curbWidth;
+       const totalWidth = this.roadWidth + curbWidth * 2;
+       const halfRoad = this.roadWidth / 2;
+ 
+@@ -359,6 +374,92 @@
+       } else if (this.def.theme === 'coastal') {
+         this.buildCoastalParadise();
+       }
++
++      // Trackside crowd — added to every track/theme.
++      this.buildSpectators();
++    }
++
++    // Generic trackside spectator crowd: low guardrails + raised viewing
++    // platforms + clusters of simple low-poly people, placed just outside
++    // the curb on alternating sides all the way around the circuit.
++    buildSpectators() {
++      const bodyColors = [0xff595e, 0xffca3a, 0x8ac926, 0x1982c4, 0x6a4c93, 0xf3722c, 0x90be6d, 0xf8f9fa];
++      const skinTones = [0xffdbac, 0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524];
++
++      const barrierMat = new THREE.MeshStandardMaterial({ color: 0xd6d6d6, roughness: 0.6, metalness: 0.2 });
++      const standMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4b, roughness: 0.85 });
++
++      // Distance from the road centerline to where the crowd stands begin —
++      // just past the curb, so spectators never sit on (or inside) the track.
++      const sideOffset = this.roadWidth / 2 + this.curbWidth + 3;
++      const spacing = 12; // waypoint step between potential crowd clusters
++      const up = new THREE.Vector3(0, 1, 0);
++
++      for (let i = 0; i < this.waypoints.length - spacing; i += spacing) {
++        const t = i / (this.waypoints.length - 1);
++        const pt = this.curve.getPointAt(Math.min(t, 0.999));
++        const tangent = this.curve.getTangentAt(Math.min(t, 0.999)).normalize();
++        const normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
++
++        [-1, 1].forEach((side) => {
++          // Skip some clusters at random so the crowd looks natural and
++          // doesn't form a solid, repetitive wall the whole way around.
++          if (Math.random() < 0.35) return;
++
++          const basePos = pt.clone().add(normal.clone().multiplyScalar(side * sideOffset));
++
++          // Guard against track geometry where a DIFFERENT part of the loop
++          // (e.g. a tight hairpin near the start/finish straight) happens to
++          // pass close to this offset point — skip the stand there instead
++          // of letting it land on top of that other section of track.
++          if (!this.isClearOfTrack(basePos.x, basePos.z, 0, 2)) return;
++
++          // Low guardrail between the track and the crowd
++          const barrierGeo = new THREE.BoxGeometry(0.15, 0.9, 4.5);
++          const barrier = new THREE.Mesh(barrierGeo, barrierMat);
++          barrier.position.copy(basePos).add(new THREE.Vector3(0, 0.45, 0));
++          const barrierLookTarget = basePos.clone().add(tangent);
++          barrier.lookAt(barrierLookTarget.x, basePos.y + 0.45, barrierLookTarget.z);
++          this.group.add(barrier);
++
++          // Small raised viewing platform behind the guardrail
++          const standPos = basePos.clone().add(normal.clone().multiplyScalar(side * 2.2));
++          const standGeo = new THREE.BoxGeometry(4.5, 0.4, 3.0);
++          const stand = new THREE.Mesh(standGeo, standMat);
++          stand.position.copy(standPos).add(new THREE.Vector3(0, 0.2, 0));
++          this.group.add(stand);
++
++          // Cluster of simple low-poly spectators on the platform
++          const crowdCount = 4 + Math.floor(Math.random() * 4);
++          for (let c = 0; c < crowdCount; c++) {
++            const figure = new THREE.Group();
++            const jitterAlong = (Math.random() - 0.5) * 3.6;
++            const jitterOut = (Math.random() - 0.5) * 1.4;
++            figure.position.copy(standPos)
++              .add(tangent.clone().multiplyScalar(jitterAlong))
++              .add(normal.clone().multiplyScalar(side * jitterOut))
++              .add(new THREE.Vector3(0, 0.4, 0));
++
++            const bodyColor = bodyColors[Math.floor(Math.random() * bodyColors.length)];
++            const skinColor = skinTones[Math.floor(Math.random() * skinTones.length)];
++
++            const torsoGeo = new THREE.CylinderGeometry(0.22, 0.26, 0.75, 6);
++            const torsoMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.8 });
++            const torso = new THREE.Mesh(torsoGeo, torsoMat);
++            torso.position.y = 0.55;
++            figure.add(torso);
++
++            const headGeo = new THREE.SphereGeometry(0.16, 8, 8);
++            const headMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.7 });
++            const head = new THREE.Mesh(headGeo, headMat);
++            head.position.y = 1.0;
++            figure.add(head);
++
++            figure.rotation.y = Math.random() * Math.PI * 2;
++            this.group.add(figure);
++          }
++        });
++      }
+     }
+ 
+     buildNeonMetropolis() {
+@@ -377,8 +478,11 @@
+         const x = Math.cos(angle) * radius;
+         const z = Math.sin(angle) * radius;
+ 
+-        // Check distance to track curve
+-        if (this.distanceToTrack(x, z) < this.roadWidth * 1.6) continue;
++        // Check distance to track curve, accounting for the building's own
++        // half-width so its edge (not just its center point) stays clear
++        // of the asphalt — this is what used to let towers clip into the road.
++        const footprint = Math.max(w, d) / 2;
++        if (!this.isClearOfTrack(x, z, footprint, 6)) continue;
+ 
+         const bGeo = new THREE.BoxGeometry(w, h, d);
+         const bMat = new THREE.MeshStandardMaterial({
+@@ -437,15 +541,18 @@
+       });
+ 
+       for (let i = 0; i < 75; i++) {
++        const rockHeight = 25 + Math.random() * 60;
++        const rockWidth = 20 + Math.random() * 35; // this IS the cone's base radius
+         const radius = 100 + Math.random() * 260;
+         const angle = Math.random() * Math.PI * 2;
+         const x = Math.cos(angle) * radius;
+         const z = Math.sin(angle) * radius;
+ 
+-        if (this.distanceToTrack(x, z) < this.roadWidth * 1.5) continue;
++        // Use the rock's own base radius as its footprint — previously this
++        // check ran before rockWidth even existed, so wide spires could be
++        // placed with their base straddling the asphalt on tight bends.
++        if (!this.isClearOfTrack(x, z, rockWidth, 6)) continue;
+ 
+-        const rockHeight = 25 + Math.random() * 60;
+-        const rockWidth = 20 + Math.random() * 35;
+         const rGeo = new THREE.ConeGeometry(rockWidth, rockHeight, 6);
+         const rock = new THREE.Mesh(rGeo, rockMat);
+         rock.position.set(x, rockHeight / 2, z);
+@@ -461,7 +568,7 @@
+         const x = Math.cos(angle) * radius;
+         const z = Math.sin(angle) * radius;
+ 
+-        if (this.distanceToTrack(x, z) < this.roadWidth * 1.4) continue;
++        if (!this.isClearOfTrack(x, z, 1.2, 3)) continue;
+ 
+         const cGroup = new THREE.Group();
+         cGroup.position.set(x, 0, z);
+@@ -504,7 +611,7 @@
+         const x = Math.cos(angle) * radius;
+         const z = Math.sin(angle) * radius;
+ 
+-        if (this.distanceToTrack(x, z) < this.roadWidth * 1.5) continue;
++        if (!this.isClearOfTrack(x, z, 3.5, 4)) continue;
+ 
+         const palm = new THREE.Group();
+         palm.position.set(x, 0, z);
+@@ -525,9 +632,11 @@
+     }
+ 
+     distanceToTrack(x, z) {
++      // Full-resolution scan (was every 4th waypoint before), so tight
++      // hairpins can't hide a "gap" that a decorative object slips through.
+       let minDist = Infinity;
+       const testPt = new THREE.Vector2(x, z);
+-      for (let i = 0; i < this.waypoints.length; i += 4) {
++      for (let i = 0; i < this.waypoints.length; i++) {
+         const wp = this.waypoints[i];
+         const d = testPt.distanceTo(new THREE.Vector2(wp.x, wp.z));
+         if (d < minDist) minDist = d;
+@@ -535,6 +644,19 @@
+       return minDist;
+     }
+ 
++    // Returns true only if an object of the given footprint radius, placed
++    // at (x, z), would sit fully clear of the road + curb, with a safety
++    // margin on top. Previous checks compared the OBJECT CENTER's distance
++    // against a flat multiple of roadWidth, ignoring how wide the object
++    // itself was — that let wide buildings/rock spires spawn with their own
++    // body clipping through the asphalt on curves. This accounts for the
++    // object's own half-width so its edge, not just its center, stays clear.
++    isClearOfTrack(x, z, footprintRadius, extraMargin) {
++      const margin = (typeof extraMargin === 'number') ? extraMargin : 4;
++      const requiredClearance = (this.roadWidth / 2) + this.curbWidth + margin + (footprintRadius || 0);
++      return this.distanceToTrack(x, z) >= requiredClearance;
++    }
++
+     setupCheckpoints() {
+       // 8 Checkpoints distributed evenly along the track
+       const numCheckpoints = 8;
