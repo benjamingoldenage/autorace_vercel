@@ -1,6 +1,14 @@
 // audio.js - AutoRace Web Audio API Synthesizer & Music Engine
-(function() {
+(function () {
   'use strict';
+  // src/Audio.js içine ekleyin:
+  const bgMusic = new Audio('/assets/audio/new_race_music.mp3');
+  bgMusic.loop = true;
+  bgMusic.volume = 0.4;
+
+  export function playMusic() {
+    bgMusic.play().catch(e => console.log("Oynatma engellendi", e));
+  }
 
   class SoundEngine {
     constructor() {
@@ -117,7 +125,7 @@
     updateEngine(speedKmh, maxSpeedKmh, throttle) {
       if (!this.ctx || !this.engineRunning || !this.settings.sfxEnabled) return;
       const speedRatio = Math.min(1.0, Math.max(0, speedKmh / (maxSpeedKmh || 160)));
-      
+
       // Calculate simulated RPM and gear shifts
       const gear = Math.floor(speedRatio * 4);
       const gearSubRatio = (speedRatio * 4) % 1.0;
@@ -286,7 +294,7 @@
       if (!this.ctx || this.musicPlaying) return;
       this.musicPlaying = true;
       this.musicStep = 0;
-      
+
       const bpm = 124;
       const stepDuration = (60 / bpm) / 4; // 16th notes (~121ms)
 

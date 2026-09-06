@@ -1,6 +1,20 @@
 // track.js - AutoRace 3D Track Generator & Environment Builder
-(function() {
+(function () {
   'use strict';
+  // src/Track.js içine ekleyin:
+  // (Seyirci görselini public/assets/images/spectators.png olarak kaydettiğinizi varsayıyoruz)
+  const textureLoader = new THREE.TextureLoader();
+  const spectatorTexture = textureLoader.load('/assets/images/spectators.png');
+
+  export function addSpectators(scene, trackPositions) {
+    trackPositions.forEach(pos => {
+      const spriteMaterial = new THREE.SpriteMaterial({ map: spectatorTexture });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.position.set(pos.x + 5, pos.y, pos.z); // Yol kenarına koy
+      sprite.scale.set(2, 2, 1);
+      scene.add(sprite);
+    });
+  }
 
   const TRACK_DEFINITIONS = {
     neon_city: {
@@ -162,7 +176,7 @@
     buildTrack() {
       // 1. Create Smooth CatmullRom Curve
       this.curve = new THREE.CatmullRomCurve3(this.def.points, true, 'centripetal');
-      
+
       const numSamples = 240;
       this.waypoints = this.curve.getPoints(numSamples);
 
@@ -515,7 +529,7 @@
         [-1, 1].forEach(side => {
           const lampGroup = new THREE.Group();
           lampGroup.position.copy(pt).add(normal.clone().multiplyScalar(side * (this.roadWidth / 2 + 2.5)));
-          
+
           const poleGeo = new THREE.CylinderGeometry(0.12, 0.15, 6, 6);
           const poleMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
           const pole = new THREE.Mesh(poleGeo, poleMat);

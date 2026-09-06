@@ -1,6 +1,19 @@
 // game.js - AutoRace Core Race Loop, Physics, HUD, Drift Rewards & AI Manager
-(function() {
+(function () {
   'use strict';
+  // src/Game.js içine ekleyin:
+  document.getElementById('exitButton')?.addEventListener('click', () => {
+    // 1. Oyun render döngüsünü durdur
+    if (window.animationFrameId) {
+      cancelAnimationFrame(window.animationFrameId);
+    }
+    // 2. Müziği durdur
+    if (window.gameAudio) {
+      window.gameAudio.pause();
+    }
+    // 3. Güvenli şekilde ana ekrana dön
+    window.location.href = '/';
+  });
 
   class GameEngine {
     constructor() {
